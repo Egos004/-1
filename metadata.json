@@ -1,0 +1,6 @@
+{
+  "name": "ТаксиПарк Архитектура",
+  "description": "Админ-панель для просмотра отчетов и код Telegram-бота для сбора данных с водителей",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
