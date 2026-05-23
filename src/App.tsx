@@ -1,3 +1,4 @@
+import { fetchApi } from './api';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Bot, CarTaxiFront, Database, FileCode2, Search, CheckCircle2, Circle, Users, X, Car as CarIcon, IdCard, Edit, Calendar, AlertTriangle, CalendarDays } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -67,14 +68,17 @@ export default function App() {
 
   const [selectedDriverPassport, setSelectedDriverPassport] = useState<Driver | null>(null);
 
+  const [shiftTimeFrom, setShiftTimeFrom] = useState('08:00');
+  const [shiftTimeTo, setShiftTimeTo] = useState('20:00');
+
   // Fetch simulated data from our node backend
   useEffect(() => {
     Promise.all([
-      fetch('/api/shifts').then(res => res.json()),
-      fetch('/api/drivers').then(res => res.json()),
-      fetch('/api/cars').then(res => res.json()),
-      fetch('/api/planned-shifts').then(res => res.json()),
-      fetch('/api/events').then(res => res.json())
+      fetchApi('/api/shifts').then(res => res.json()),
+      fetchApi('/api/drivers').then(res => res.json()),
+      fetchApi('/api/cars').then(res => res.json()),
+      fetchApi('/api/planned-shifts').then(res => res.json()),
+      fetchApi('/api/events').then(res => res.json())
     ])
     .then(([shiftsData, driversData, carsData, plannedShiftsData, eventsData]) => {
       setShifts(shiftsData);
@@ -89,7 +93,7 @@ export default function App() {
 
   const toggleShiftCheck = async (id: number, currentChecked: boolean) => {
     try {
-      const res = await fetch(`/api/shifts/${id}/check`, {
+      const res = await fetchApi(`/api/shifts/${id}/check`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_checked: !currentChecked })
@@ -111,7 +115,7 @@ export default function App() {
     e.preventDefault();
     if (!newCarModel || !newCarPlate) return;
     try {
-      const res = await fetch('/api/cars', {
+      const res = await fetchApi('/api/cars', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: newCarModel, plate_number: newCarPlate, fuel_consumption: parseFloat(newCarFuel) || undefined, maintenance_limit: parseInt(newCarMaintenance) || undefined })
@@ -142,7 +146,7 @@ export default function App() {
     e.preventDefault();
     if (!editingCar || !editCarModel || !editCarPlate) return;
     try {
-      const res = await fetch(`/api/cars/${editingCar.id}`, {
+      const res = await fetchApi(`/api/cars/${editingCar.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: editCarModel, plate_number: editCarPlate, fuel_consumption: parseFloat(editCarFuel) || undefined, maintenance_limit: parseInt(editCarMaintenance) || undefined })
@@ -160,10 +164,28 @@ export default function App() {
   const handleDeleteCar = async (id: number) => {
     if (confirm('Удалить эту машину?')) {
       try {
-        const res = await fetch(`/api/cars/${id}`, { method: 'DELETE' });
+        const res = await fetchApi(`/api/cars/${id}`, { method: 'DELETE' });
         if (res.ok) {
           setCars(cars.filter(c => c.id !== id));
           if (editingCar?.id === id) setEditingCar(null);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handlePassMaintenance = async (car: Car, currentMileage: number) => {
+    if (confirm(`Отметить прохождение ТО для автомобиля ${car.model}? Это сбросит интервал пробега до ТО.`)) {
+      try {
+        const res = await fetchApi(`/api/cars/${car.id}/maintenance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_mileage: currentMileage })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCars(cars.map(c => c.id === car.id ? data.car : c));
         }
       } catch (err) {
         console.error(err);
@@ -195,7 +217,7 @@ export default function App() {
     const body = JSON.stringify({ date: eventDate, title: eventTitle, category: eventCategory, description: eventDescription });
     try {
       if (editingEvent) {
-        const res = await fetch(`/api/events/${editingEvent.id}`, {
+        const res = await fetchApi(`/api/events/${editingEvent.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body
@@ -205,7 +227,7 @@ export default function App() {
           setEvents(events.map(ev => ev.id === editingEvent.id ? data.event : ev));
         }
       } else {
-        const res = await fetch('/api/events', {
+        const res = await fetchApi('/api/events', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body
@@ -224,7 +246,7 @@ export default function App() {
   const handleDeleteEvent = async (id: number) => {
     if (confirm('Удалить это событие?')) {
       try {
-        const res = await fetch(`/api/events/${id}`, { method: 'DELETE' });
+        const res = await fetchApi(`/api/events/${id}`, { method: 'DELETE' });
         if (res.ok) {
           setEvents(events.filter(e => e.id !== id));
         }
@@ -244,13 +266,13 @@ export default function App() {
     const dateStr = format(selectedCalendarDate, 'yyyy-MM-dd');
     
     // Check if shift already exists
-    const existing = plannedShifts.find(p => p.car_id === calendarCarId && p.driver_id === driverId && p.date === dateStr);
+    const existing = plannedShifts.find(p => p.car_id === calendarCarId && p.driver_id === driverId && p.date === dateStr && p.time_from === shiftTimeFrom && p.time_to === shiftTimeTo);
     
     try {
-      const res = await fetch('/api/planned-shifts', {
+      const res = await fetchApi('/api/planned-shifts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ car_id: calendarCarId, driver_id: driverId, date: dateStr })
+        body: JSON.stringify({ car_id: calendarCarId, driver_id: driverId, date: dateStr, time_from: shiftTimeFrom, time_to: shiftTimeTo })
       });
       if (res.ok) {
         const data = await res.json();
@@ -267,7 +289,7 @@ export default function App() {
   const handleRemovePlannedShift = async (id: number) => {
     if (confirm('Очистить смену?')) {
       try {
-        const res = await fetch(`/api/planned-shifts/${id}`, { method: 'DELETE' });
+        const res = await fetchApi(`/api/planned-shifts/${id}`, { method: 'DELETE' });
         if (res.ok) {
           setPlannedShifts(plannedShifts.filter(p => p.id !== id));
         }
@@ -281,7 +303,7 @@ export default function App() {
     e.preventDefault();
     if (!newDriverName || !newDriverPhone) return;
     try {
-      const res = await fetch('/api/drivers', {
+      const res = await fetchApi('/api/drivers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -329,7 +351,7 @@ export default function App() {
     e.preventDefault();
     if (!editingDriver || !editDriverName || !editDriverPhone) return;
     try {
-      const res = await fetch(`/api/drivers/${editingDriver.id}`, {
+      const res = await fetchApi(`/api/drivers/${editingDriver.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -353,10 +375,23 @@ export default function App() {
     }
   };
 
+  const handleApproveDriver = async (driver: Driver) => {
+    try {
+      const res = await fetchApi(`/api/drivers/${driver.id}/approve`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_approved: !driver.is_approved }),
+      });
+      const data = await res.json();
+      setDrivers(drivers.map(d => d.id === driver.id ? data.driver : d));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleDeleteDriver = async (id: number) => {
     if (confirm('Удалить этого водителя?')) {
       try {
-        const res = await fetch(`/api/drivers/${id}`, { method: 'DELETE' });
+        const res = await fetchApi(`/api/drivers/${id}`, { method: 'DELETE' });
         if (res.ok) {
           setDrivers(drivers.filter(d => d.id !== id));
           if (editingDriver?.id === id) setEditingDriver(null);
@@ -602,7 +637,8 @@ export default function App() {
                           <tbody className="divide-y divide-gray-100">
                             {cars.map((car) => {
                               const carMileage = shifts.filter(s => s.car_id === car.id).reduce((sum, s) => sum + s.mileage, 0);
-                              const limitWarning = car.maintenance_limit && (car.maintenance_limit - carMileage) <= 700;
+                              const currentIntervalMileage = carMileage - (car.last_maintenance_mileage || 0);
+                              const limitWarning = car.maintenance_limit && (car.maintenance_limit - currentIntervalMileage) <= 700;
                               return (
                                 <tr key={car.id} className={`transition-colors ${limitWarning ? 'bg-red-50 hover:bg-red-100/80' : 'hover:bg-gray-50'}`}>
                                   <td className={`px-6 py-4 font-mono text-xs ${limitWarning ? 'text-red-500' : 'text-gray-500'}`}>{car.id}</td>
@@ -617,14 +653,24 @@ export default function App() {
                                   </td>
                                   <td className={`px-6 py-4 font-medium ${limitWarning ? 'text-red-700' : 'text-gray-700'}`}>
                                     {carMileage > 0 ? `${carMileage.toLocaleString('ru-RU')} км` : '—'}
+                                    {car.maintenance_limit && <div className={`text-xs font-normal mt-0.5 ${limitWarning ? 'text-red-600' : 'text-gray-400'}`}>После ТО: {currentIntervalMileage.toLocaleString('ru-RU')} км</div>}
                                   </td>
                                   <td className={`px-6 py-4 ${limitWarning ? 'text-red-700 font-medium' : 'text-gray-700'}`}>
                                     {car.maintenance_limit ? `${car.maintenance_limit.toLocaleString('ru-RU')} км` : '—'}
                                   </td>
-                                  <td className="px-6 py-4 space-x-2">
+                                  <td className="px-6 py-4 space-x-2 whitespace-nowrap">
+                                    {car.maintenance_limit && (
+                                      <button 
+                                        onClick={() => handlePassMaintenance(car, carMileage)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${limitWarning ? 'bg-red-500 text-white border-red-500 hover:bg-red-600' : 'bg-white text-gray-600 border-gray-200 hover:border-amber-500 hover:text-amber-500'}`}
+                                        title="Отметить прохождение ТО"
+                                      >
+                                        Пройти ТО
+                                      </button>
+                                    )}
                                     <button 
                                       onClick={() => handleEditCarOpen(car)}
-                                      className={`${limitWarning ? 'text-red-500 hover:text-red-700' : 'text-gray-400 hover:text-amber-500'} transition-colors`}
+                                      className={`p-1.5 rounded-lg ${limitWarning ? 'text-red-500 hover:text-red-700 hover:bg-red-100' : 'text-gray-400 hover:text-amber-500 hover:bg-amber-50'} transition-colors`}
                                       title="Редактировать"
                                     >
                                       <Edit size={16} />
@@ -701,10 +747,16 @@ export default function App() {
                                   {driver.is_approved ? 'Допущен' : 'Ожидает модерации'}
                                 </span>
                               </td>
-                              <td className="px-6 py-4">
+                              <td className="px-6 py-4 space-x-2 whitespace-nowrap">
+                                <button 
+                                  onClick={() => handleApproveDriver(driver)}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${!driver.is_approved ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                                >
+                                  {driver.is_approved ? 'Отменить допуск' : 'Подтвердить'}
+                                </button>
                                 <button 
                                   onClick={() => handleEditDriverOpen(driver)}
-                                  className="text-gray-400 hover:text-amber-500 transition-colors"
+                                  className="text-gray-400 hover:text-amber-500 transition-colors p-1.5"
                                   title="Редактировать"
                                 >
                                   <Edit size={16} />
@@ -816,9 +868,14 @@ export default function App() {
                                   <div className="space-y-1.5 focus-within:ring-0">
                                     {dayActualShifts.map(s => {
                                       const driverName = drivers.find(d => String(d.id) === s.driver_id || d.telegram_id === s.driver_id)?.full_name || s.driver_name || 'Неизвестный водитель';
+                                      const startTime = s.shift_start ? format(new Date(s.shift_start), 'HH:mm') : '';
+                                      const endTime = s.shift_end ? format(new Date(s.shift_end), 'HH:mm') : '';
                                       return (
                                         <div key={`actual-${s.id}`} className="text-xs p-2 rounded-lg bg-green-50 text-green-800 border border-green-200/60 shadow-sm transition-all" title="Отчет сдан в эту смену">
-                                          <div className="font-semibold mb-0.5 flex items-center gap-1"><CheckCircle2 size={12}/> Отработал:</div>
+                                          <div className="font-semibold flex items-center justify-between gap-1 mb-0.5">
+                                            <span className="flex items-center gap-1"><CheckCircle2 size={12}/> Отработал:</span>
+                                            {(startTime && endTime) && <span className="text-[10px] opacity-75">{startTime}-{endTime}</span>}
+                                          </div>
                                           <div className="truncate">{driverName}</div>
                                         </div>
                                       );
@@ -828,7 +885,10 @@ export default function App() {
                                       const driverName = drivers.find(d => d.id === ps.driver_id)?.full_name || `ID ${ps.driver_id}`;
                                       return (
                                         <div key={`planned-${ps.id}`} className="text-xs p-2 rounded-lg bg-blue-50 text-blue-800 border border-blue-200/60 shadow-sm flex flex-col relative overflow-hidden group/item" title="Водитель запланирован на смену">
-                                          <div className="font-semibold mb-0.5">В плане:</div>
+                                          <div className="font-semibold flex items-center justify-between mb-0.5">
+                                            <span>В плане:</span>
+                                            {(ps.time_from && ps.time_to) && <span className="text-[10px] opacity-75">{ps.time_from}-{ps.time_to}</span>}
+                                          </div>
                                           <div className="truncate">{driverName}</div>
                                           <button 
                                             onClick={(e) => { e.stopPropagation(); handleRemovePlannedShift(ps.id); }} 
@@ -1332,7 +1392,85 @@ export default function App() {
                     <X size={20} />
                   </button>
                 </div>
-                <div className="p-4 max-h-[60vh] overflow-y-auto">
+                
+                <div className="p-5 border-b border-gray-100 bg-white">
+                  <div className="mb-4">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Временная линия (занятость автомобиля)</div>
+                    <div className="relative h-6 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                      {/* Scale markers */}
+                      {[0, 6, 12, 18, 24].map(h => (
+                         <div key={h} className="absolute top-0 bottom-0 border-l border-gray-300 z-0" style={{ left: `${(h / 24) * 100}%` }}></div>
+                      ))}
+                      
+                      {(() => {
+                        const dateStr = format(selectedCalendarDate, 'yyyy-MM-dd');
+                        const pShifts = plannedShifts.filter(p => p.car_id === calendarCarId && p.date === dateStr);
+                        const aShifts = shifts.filter(s => s.car_id === calendarCarId && s.shift_start.startsWith(dateStr));
+                        
+                        const parseTimeToMinutes = (t: string) => {
+                          if (!t) return 0;
+                          const [h, m] = t.split(':').map(Number);
+                          return (h * 60) + (m || 0);
+                        };
+                        
+                        return (
+                          <>
+                            {aShifts.map(s => {
+                              const st = s.shift_start ? format(new Date(s.shift_start), 'HH:mm') : '00:00';
+                              const et = s.shift_end ? format(new Date(s.shift_end), 'HH:mm') : '23:59';
+                              const startMin = parseTimeToMinutes(st);
+                              let endMin = parseTimeToMinutes(et);
+                              if (endMin <= startMin) endMin = 1440; // overflow to next day
+                              const left = (startMin / 1440) * 100;
+                              const width = ((endMin - startMin) / 1440) * 100;
+                              return (
+                                <div key={`actual-${s.id}`} className="absolute top-0 bottom-0 bg-green-500/80 z-10 hover:bg-green-500 transition-colors cursor-help" style={{ left: `${left}%`, width: `${width}%` }} title={`Отработал: ${st} - ${et}`}></div>
+                              );
+                            })}
+                            {pShifts.filter(ps => !aShifts.some(as => as.driver_id === String(ps.driver_id))).map(ps => {
+                              const startMin = parseTimeToMinutes(ps.time_from || '00:00');
+                              let endMin = parseTimeToMinutes(ps.time_to || '23:59');
+                              if (endMin <= startMin) endMin = 1440;
+                              const left = (startMin / 1440) * 100;
+                              const width = ((endMin - startMin) / 1440) * 100;
+                              return (
+                                <div key={`planned-${ps.id}`} className="absolute top-0 bottom-0 bg-blue-500/80 z-10 hover:bg-blue-500 transition-colors cursor-help" style={{ left: `${left}%`, width: `${width}%` }} title={`В плане: ${ps.time_from} - ${ps.time_to}`}></div>
+                              );
+                            })}
+                            
+                            {/* Current selection preview */}
+                            {shiftTimeFrom && shiftTimeTo && (
+                              <div className="absolute top-full h-1 bg-amber-500 z-20 mt-0.5" style={{
+                                left: `${(parseTimeToMinutes(shiftTimeFrom) / 1440) * 100}%`,
+                                width: `${((parseTimeToMinutes(shiftTimeTo) <= parseTimeToMinutes(shiftTimeFrom) ? 1440 : parseTimeToMinutes(shiftTimeTo)) - parseTimeToMinutes(shiftTimeFrom)) / 1440 * 100}%`
+                              }}></div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-400 mt-1 px-1">
+                      <span>00:00</span>
+                      <span>06:00</span>
+                      <span>12:00</span>
+                      <span>18:00</span>
+                      <span>24:00</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Начало смены</label>
+                      <input type="time" value={shiftTimeFrom} onChange={e => setShiftTimeFrom(e.target.value)} className="w-full border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-amber-500" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Конец смены</label>
+                      <input type="time" value={shiftTimeTo} onChange={e => setShiftTimeTo(e.target.value)} className="w-full border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-amber-500" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 max-h-[40vh] overflow-y-auto">
                   {drivers.length > 0 ? (
                     <div className="space-y-2">
                       {drivers.map(driver => (

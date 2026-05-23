@@ -4,6 +4,7 @@ export type Car = {
   plate_number: string;
   fuel_consumption?: number;
   maintenance_limit?: number;
+  last_maintenance_mileage?: number;
 };
 
 export type AppEvent = {
@@ -50,4 +51,6 @@ export type PlannedShift = {
   car_id: number;
   driver_id: number;
   date: string;
+  time_from?: string;
+  time_to?: string;
 };

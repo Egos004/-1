@@ -1,284 +1,285 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { PrismaClient } from "@prisma/client";
+import { z } from "zod";
+import crypto from "crypto";
+import dotenv from "dotenv";
 
-// Mock Database for the Admin Dashboard Preview
-function generateMockData() {
-  const cars = [
-    { id: 1, model: "Kia Rio", plate_number: "А123АА178", fuel_consumption: 7.5, maintenance_limit: 15000 },
-    { id: 2, model: "Hyundai Solaris", plate_number: "В456ВВ178", fuel_consumption: 8.0, maintenance_limit: 15000 },
-    { id: 3, model: "Skoda Octavia", plate_number: "С789СС178", fuel_consumption: 7.2, maintenance_limit: 15000 }
-  ];
+dotenv.config();
 
-  const drivers = [
-    { id: 1, telegram_id: "123456789", full_name: "Иванов Иван Иванович", phone_number: "+79001234567", is_approved: true, created_at: "2025-05-01T10:00:00Z", passport_series: "1234", passport_number: "567890", id_number: "123456789012", passport_issue_date: "2015-05-10", passport_issued_by: "ГУ МВД России по г. Москве" },
-    { id: 2, telegram_id: "987654321", full_name: "Петров Петр Петрович", phone_number: "+79007654321", is_approved: true, created_at: "2025-05-05T12:30:00Z", passport_series: "2345", passport_number: "678901", id_number: "234567890123", passport_issue_date: "2016-06-11", passport_issued_by: "ОВД Района Сокол г. Москвы" },
-    { id: 3, telegram_id: "111222333", full_name: "Смирнов Алексей Викторович", phone_number: "+79001112233", is_approved: true, created_at: "2025-05-10T09:15:00Z", passport_series: "3456", passport_number: "789012", id_number: "345678901234", passport_issue_date: "2018-12-20", passport_issued_by: "ТП №1 ОУФМС" },
-    { id: 4, telegram_id: "444555666", full_name: "Кузнецов Дмитрий Олегович", phone_number: "+79002223344", is_approved: true, created_at: "2025-06-01T14:20:00Z", passport_series: "4567", passport_number: "890123", id_number: "456789012345", passport_issue_date: "2019-01-15", passport_issued_by: "УМВД по Московской области" },
-    { id: 5, telegram_id: "777888999", full_name: "Соколов Максим Игоревич", phone_number: "+79003334455", is_approved: true, created_at: "2025-06-15T10:45:00Z", passport_series: "5678", passport_number: "901234", id_number: "567890123456", passport_issue_date: "2020-02-28", passport_issued_by: "МВД по Республике Татарстан" },
-  ];
+const prisma = new PrismaClient();
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'; // 32 bytes
+const IV_LENGTH = 16;
+const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN || "secret_admin_token_123";
 
-  const shifts: any[] = [];
-  let shiftId = 1;
-  const now = new Date();
-  
-  const notes = [
-    "", "", "", "", "", "Всё ок", "", "", 
-    "Скрипит передняя правая колодка", 
-    "Нужно долить омывайку", 
-    "Пассажир забыл зонт", 
-    "Заменил лампочку ближнего света", 
-    "Грязный салон после прошлого водителя",
-    "Пробило колесо, заклеил на шиномонтаже",
-    "Иногда троит двигатель на холостых"
-  ];
-
-  for (const driver of drivers) {
-    let currentDate = new Date(driver.created_at);
-    while (currentDate < now) {
-      const dayOfWeek = currentDate.getDay();
-      // Skip randomly to achieve ~4 days a week on average, giving them weekends off occasionally
-      if (dayOfWeek !== 0 && Math.random() > 0.3) { 
-        const start = new Date(currentDate);
-        start.setUTCHours(Math.floor(Math.random() * 4) + 6); // start between 6:00 and 9:00 UTC
-        const end = new Date(start);
-        end.setUTCHours(start.getUTCHours() + 10); // 10 hour shift
-        
-        if (end > now) break;
-
-        const car = cars[Math.floor(Math.random() * cars.length)];
-        
-        shifts.push({
-          id: shiftId++,
-          driver_id: driver.telegram_id,
-          car_id: car.id,
-          shift_start: start.toISOString(),
-          shift_end: end.toISOString(),
-          mileage: Math.floor(Math.random() * 150) + 150, // 150-300 km
-          avg_fuel_consumption: parseFloat((Math.random() * (10 - 7) + 7).toFixed(1)),
-          revenue_disp_1: (Math.floor(Math.random() * 40) + 30) * 100, // 3000-7000 
-          revenue_disp_2: (Math.floor(Math.random() * 20) + 5) * 100, // 500-2500
-          special_notes: notes[Math.floor(Math.random() * notes.length)],
-          is_checked: Math.random() > 0.05, // 95% checked
-          created_at: end.toISOString(),
-          driver_name: driver.full_name,
-          car_name: `${car.model} (${car.plate_number})`
-        });
-      }
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-  }
-
-  shifts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  return { cars, drivers, shifts };
+function encrypt(text: string | null): string | null {
+  if (!text) return null;
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+  let encrypted = cipher.update(text);
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
 }
 
-const mockData = generateMockData();
-let drivers = mockData.drivers;
-let cars = mockData.cars;
-let shifts = mockData.shifts;
-let planned_shifts: any[] = [];
-let events: any[] = [
-  { id: 1, date: new Date().toISOString().split('T')[0], title: 'ТО - Kia Rio', category: 'ТО автомобиля', description: 'Замена масла и фильтров' }
-];
+function decrypt(text: string | null): string | null {
+  if (!text) return null;
+  try {
+    const textParts = text.split(':');
+    const iv = Buffer.from(textParts.shift()!, 'hex');
+    const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+  } catch (e) {
+    return text;
+  }
+}
 
-async function startServer() {
+// Authentication middleware
+const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const token = req.headers['x-admin-token'];
+  if (token !== ADMIN_API_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+};
+
+function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
 
-  // API Routes
-  app.get("/api/drivers", (req, res) => {
-    res.json(drivers);
+  // Wait for request body and handle zod errors
+  const asyncHandler = (fn: express.RequestHandler) => (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      Promise.resolve(fn(req, res, next)).catch((err) => {
+          if (err instanceof z.ZodError) {
+              return res.status(400).json({ error: "Validation failed", details: err.errors });
+          }
+          console.error(err);
+          res.status(500).json({ error: "Internal server error" });
+      });
+  };
+
+  // Drivers
+  
+  const driverSchema = z.object({
+    telegram_id: z.string().optional(),
+    full_name: z.string().min(1, "Имя обязательно"),
+    phone_number: z.string().optional(),
+    passport_series: z.string().optional(),
+    passport_number: z.string().optional(),
+    id_number: z.string().optional(),
+    passport_issue_date: z.string().optional(),
+    passport_issued_by: z.string().optional()
   });
 
-  app.put("/api/drivers/:id/approve", (req, res) => {
-    const driver = drivers.find(d => d.id === parseInt(req.params.id));
-    if (driver) {
-        driver.is_approved = req.body.is_approved;
-        res.json({ success: true, driver });
-    } else {
-        res.status(404).json({ error: "Водитель не найден" });
-    }
+  app.get("/api/drivers", authMiddleware, asyncHandler(async (req, res) => {
+    const drivers = await prisma.driver.findMany();
+    // Decrypt fields
+    const formattedDrivers = drivers.map(d => ({
+      ...d,
+      passport_series: decrypt(d.passport_series),
+      passport_number: decrypt(d.passport_number),
+      id_number: decrypt(d.id_number)
+    }));
+    res.json(formattedDrivers);
+  }));
+
+  app.put("/api/drivers/:id/approve", authMiddleware, asyncHandler(async (req, res) => {
+    const { is_approved } = z.object({ is_approved: z.boolean() }).parse(req.body);
+    const driver = await prisma.driver.update({
+      where: { id: parseInt(req.params.id) },
+      data: { is_approved }
+    });
+    res.json({ success: true, driver });
+  }));
+
+  app.post("/api/drivers", authMiddleware, asyncHandler(async (req, res) => {
+    const data = driverSchema.parse(req.body);
+    const driver = await prisma.driver.create({
+      data: {
+        telegram_id: data.telegram_id || Math.floor(Math.random() * 1000000000).toString(),
+        full_name: data.full_name,
+        phone_number: data.phone_number,
+        is_approved: true,
+        passport_series: encrypt(data.passport_series || null),
+        passport_number: encrypt(data.passport_number || null),
+        id_number: encrypt(data.id_number || null),
+        passport_issue_date: data.passport_issue_date,
+        passport_issued_by: data.passport_issued_by
+      }
+    });
+    res.json(driver);
+  }));
+
+  app.put("/api/drivers/:id", authMiddleware, asyncHandler(async (req, res) => {
+    const data = driverSchema.parse(req.body);
+    
+    // Only encrypt if values are provided (partial updates)
+    const updateData: any = {
+      telegram_id: data.telegram_id,
+      full_name: data.full_name,
+      phone_number: data.phone_number,
+      passport_issue_date: data.passport_issue_date,
+      passport_issued_by: data.passport_issued_by
+    };
+    if (data.passport_series !== undefined) updateData.passport_series = encrypt(data.passport_series || null);
+    if (data.passport_number !== undefined) updateData.passport_number = encrypt(data.passport_number || null);
+    if (data.id_number !== undefined) updateData.id_number = encrypt(data.id_number || null);
+
+    const driver = await prisma.driver.update({
+      where: { id: parseInt(req.params.id) },
+      data: updateData
+    });
+    res.json({ success: true, driver });
+  }));
+
+  app.delete("/api/drivers/:id", authMiddleware, asyncHandler(async (req, res) => {
+    await prisma.driver.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
+  }));
+
+  // Cars
+  
+  const carSchema = z.object({
+    model: z.string().min(1, "Модель обязательна"),
+    plate_number: z.string().min(1, "Номер обязателен"),
+    fuel_consumption: z.coerce.number().optional(),
+    maintenance_limit: z.coerce.number().optional()
   });
 
-  app.get("/api/cars", (req, res) => {
+  app.get("/api/cars", authMiddleware, asyncHandler(async (req, res) => {
+    const cars = await prisma.car.findMany();
     res.json(cars);
+  }));
+
+  app.post("/api/cars", authMiddleware, asyncHandler(async (req, res) => {
+    const data = carSchema.parse(req.body);
+    const car = await prisma.car.create({ data });
+    res.json(car);
+  }));
+
+  app.put("/api/cars/:id", authMiddleware, asyncHandler(async (req, res) => {
+    const data = carSchema.parse(req.body);
+    const car = await prisma.car.update({
+      where: { id: parseInt(req.params.id) },
+      data
+    });
+    res.json({ success: true, car });
+  }));
+
+  app.post("/api/cars/:id/maintenance", authMiddleware, asyncHandler(async (req, res) => {
+    const { current_mileage } = req.body;
+    const car = await prisma.car.update({
+        where: { id: parseInt(req.params.id) },
+        data: { last_maintenance_mileage: current_mileage || 0 }
+    });
+    res.json({ success: true, car });
+  }));
+
+  app.delete("/api/cars/:id", authMiddleware, asyncHandler(async (req, res) => {
+    await prisma.car.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
+  }));
+
+  // Events
+  
+  const eventSchema = z.object({
+    date: z.string(),
+    title: z.string(),
+    category: z.string(),
+    description: z.string().optional()
   });
 
-  app.post("/api/cars", (req, res) => {
-    const { model, plate_number, fuel_consumption } = req.body;
-    const newCar = {
-      id: cars.length > 0 ? Math.max(...cars.map(c => c.id)) + 1 : 1,
-      model,
-      plate_number,
-      fuel_consumption: fuel_consumption || 0,
-      maintenance_limit: req.body.maintenance_limit || undefined
-    };
-    cars.push(newCar);
-    res.json(newCar);
-  });
-
-  app.put("/api/cars/:id", (req, res) => {
-    const car = cars.find(c => c.id === parseInt(req.params.id));
-    if (car) {
-        car.model = req.body.model || car.model;
-        car.plate_number = req.body.plate_number || car.plate_number;
-        if (req.body.fuel_consumption !== undefined) {
-            car.fuel_consumption = req.body.fuel_consumption;
-        }
-        if (req.body.maintenance_limit !== undefined) {
-            car.maintenance_limit = req.body.maintenance_limit;
-        }
-        res.json({ success: true, car });
-    } else {
-        res.status(404).json({ error: "Автомобиль не найден" });
-    }
-  });
-
-  app.delete("/api/cars/:id", (req, res) => {
-    const index = cars.findIndex(c => c.id === parseInt(req.params.id));
-    if (index !== -1) {
-      cars.splice(index, 1);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: "Автомобиль не найден" });
-    }
-  });
-
-  app.get("/api/events", (req, res) => {
+  app.get("/api/events", authMiddleware, asyncHandler(async (req, res) => {
+    const events = await prisma.appEvent.findMany();
     res.json(events);
-  });
+  }));
 
-  app.post("/api/events", (req, res) => {
-    const { date, title, category, description } = req.body;
-    const newEvent = {
-        id: events.length > 0 ? Math.max(...events.map(e => e.id)) + 1 : 1,
-        date,
-        title,
-        category,
-        description
-    };
-    events.push(newEvent);
-    res.json(newEvent);
-  });
+  app.post("/api/events", authMiddleware, asyncHandler(async (req, res) => {
+    const data = eventSchema.parse(req.body);
+    const event = await prisma.appEvent.create({ data });
+    res.json(event);
+  }));
 
-  app.put("/api/events/:id", (req, res) => {
-    const event = events.find(e => e.id === parseInt(req.params.id));
-    if (event) {
-        event.date = req.body.date || event.date;
-        event.title = req.body.title || event.title;
-        event.category = req.body.category || event.category;
-        event.description = req.body.description !== undefined ? req.body.description : event.description;
-        res.json({ success: true, event });
-    } else {
-        res.status(404).json({ error: "Событие не найдено" });
+  app.put("/api/events/:id", authMiddleware, asyncHandler(async (req, res) => {
+    const data = eventSchema.parse(req.body);
+    const event = await prisma.appEvent.update({
+      where: { id: parseInt(req.params.id) },
+      data
+    });
+    res.json({ success: true, event });
+  }));
+
+  app.delete("/api/events/:id", authMiddleware, asyncHandler(async (req, res) => {
+    await prisma.appEvent.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
+  }));
+
+  // Shifts
+  app.get("/api/shifts", authMiddleware, asyncHandler(async (req, res) => {
+    const shifts = await prisma.shift.findMany({
+      orderBy: { created_at: 'desc' },
+      include: { driver: true, car: true }
+    });
+    
+    // Map to include driver_name and car_name for frontend compatibility
+    const mappedShifts = shifts.map(s => ({
+      ...s,
+      driver_name: s.driver?.full_name || 'Н/Д',
+      car_name: s.car ? `${s.car.model} (${s.car.plate_number})` : 'Н/Д',
+    }));
+    res.json(mappedShifts);
+  }));
+
+  app.put("/api/shifts/:id/check", authMiddleware, asyncHandler(async (req, res) => {
+    const { is_checked } = z.object({ is_checked: z.boolean() }).parse(req.body);
+    const shift = await prisma.shift.update({
+      where: { id: parseInt(req.params.id) },
+      data: { is_checked }
+    });
+    res.json({ success: true, shift });
+  }));
+
+  // Planned Shifts
+  app.get("/api/planned-shifts", authMiddleware, asyncHandler(async (req, res) => {
+    const pshifts = await prisma.plannedShift.findMany();
+    res.json(pshifts);
+  }));
+
+  app.post("/api/planned-shifts", authMiddleware, asyncHandler(async (req, res) => {
+    const pSchema = z.object({
+        car_id: z.number(),
+        driver_id: z.number(),
+        date: z.string(),
+        time_from: z.string().optional(),
+        time_to: z.string().optional()
+    });
+    const data = pSchema.parse(req.body);
+    
+    const count = await prisma.plannedShift.count({ where: data });
+    if (count > 0) {
+        return res.status(400).json({ error: "Shift already planned" });
     }
-  });
+    
+    const ps = await prisma.plannedShift.create({ data });
+    res.json(ps);
+  }));
 
-  app.delete("/api/events/:id", (req, res) => {
-    const index = events.findIndex(e => e.id === parseInt(req.params.id));
-    if (index !== -1) {
-      events.splice(index, 1);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: "Событие не найдено" });
-    }
-  });
+  app.delete("/api/planned-shifts/:id", authMiddleware, asyncHandler(async (req, res) => {
+    await prisma.plannedShift.delete({ where: { id: parseInt(req.params.id) } });
+    res.json({ success: true });
+  }));
 
-  app.post("/api/drivers", (req, res) => {
-    const { telegram_id, full_name, phone_number, passport_series, passport_number, id_number, passport_issue_date, passport_issued_by } = req.body;
-    const newDriver = {
-      id: drivers.length > 0 ? Math.max(...drivers.map(d => d.id)) + 1 : 1,
-      telegram_id: telegram_id || Math.floor(Math.random() * 1000000000).toString(),
-      full_name,
-      phone_number,
-      passport_series,
-      passport_number,
-      id_number,
-      passport_issue_date,
-      passport_issued_by,
-      is_approved: true,
-      created_at: new Date().toISOString()
-    };
-    drivers.push(newDriver);
-    res.json(newDriver);
-  });
+  return app;
+}
 
-  app.put("/api/drivers/:id", (req, res) => {
-    const driver = drivers.find(d => d.id === parseInt(req.params.id));
-    if (driver) {
-      if (req.body.telegram_id !== undefined) driver.telegram_id = req.body.telegram_id;
-      if (req.body.full_name !== undefined) driver.full_name = req.body.full_name;
-      if (req.body.phone_number !== undefined) driver.phone_number = req.body.phone_number;
-      if (req.body.passport_series !== undefined) driver.passport_series = req.body.passport_series;
-      if (req.body.passport_number !== undefined) driver.passport_number = req.body.passport_number;
-      if (req.body.id_number !== undefined) driver.id_number = req.body.id_number;
-      if (req.body.passport_issue_date !== undefined) driver.passport_issue_date = req.body.passport_issue_date;
-      if (req.body.passport_issued_by !== undefined) driver.passport_issued_by = req.body.passport_issued_by;
-      
-      res.json({ success: true, driver });
-    } else {
-      res.status(404).json({ error: "Водитель не найден" });
-    }
-  });
-
-  app.delete("/api/drivers/:id", (req, res) => {
-    const index = drivers.findIndex(d => d.id === parseInt(req.params.id));
-    if (index !== -1) {
-      drivers.splice(index, 1);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: "Водитель не найден" });
-    }
-  });
-
-  app.get("/api/shifts", (req, res) => {
-    // Return shifts with descending order
-    res.json([...shifts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-  });
-
-  app.get("/api/planned-shifts", (req, res) => {
-    res.json(planned_shifts);
-  });
-
-  app.post("/api/planned-shifts", (req, res) => {
-    const { car_id, driver_id, date } = req.body;
-    const existing = planned_shifts.find(p => p.car_id === car_id && p.driver_id === driver_id && p.date === date);
-    if (!existing) {
-      const newPlanned = {
-        id: planned_shifts.length > 0 ? Math.max(...planned_shifts.map(p => p.id)) + 1 : 1,
-        car_id,
-        driver_id,
-        date
-      };
-      planned_shifts.push(newPlanned);
-      res.json(newPlanned);
-    } else {
-      res.json(existing);
-    }
-  });
-
-  app.delete("/api/planned-shifts/:id", (req, res) => {
-    const index = planned_shifts.findIndex(p => p.id === parseInt(req.params.id));
-    if (index !== -1) {
-      planned_shifts.splice(index, 1);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: "Планируемая смена не найдена" });
-    }
-  });
-
-  app.put("/api/shifts/:id/check", (req, res) => {
-    const shift = shifts.find(s => s.id === parseInt(req.params.id));
-    if (shift) {
-        shift.is_checked = req.body.is_checked;
-        res.json({ success: true, shift });
-    } else {
-        res.status(404).json({ error: "Смена не найдена" });
-    }
-  });
+async function boot() {
+  const app = startServer();
+  const PORT = 3000;
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -290,7 +291,6 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    // Express 4 uses * for catch-all
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
@@ -301,4 +301,4 @@ async function startServer() {
   });
 }
 
-startServer();
+boot();

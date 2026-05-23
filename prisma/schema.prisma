@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Car {
+  id                      Int             @id @default(autoincrement())
+  model                   String
+  plate_number            String
+  fuel_consumption        Float?
+  maintenance_limit       Int?
+  last_maintenance_mileage Int            @default(0)
+  shifts                  Shift[]
+  planned_shifts          PlannedShift[]
+}
+
+model Driver {
+  id                  Int             @id @default(autoincrement())
+  telegram_id         String          @unique
+  full_name           String
+  phone_number        String?
+  is_approved         Boolean         @default(false)
+  created_at          DateTime        @default(now())
+  passport_series     String?
+  passport_number     String?
+  id_number           String?
+  passport_issue_date String?
+  passport_issued_by  String?
+  shifts              Shift[]
+  planned_shifts      PlannedShift[]
+}
+
+model Shift {
+  id                   Int      @id @default(autoincrement())
+  driver_id            Int
+  driver               Driver   @relation(fields: [driver_id], references: [id], onDelete: Cascade)
+  car_id               Int
+  car                  Car      @relation(fields: [car_id], references: [id], onDelete: Cascade)
+  shift_start          DateTime
+  shift_end            DateTime
+  mileage              Float
+  avg_fuel_consumption Float?
+  revenue_disp_1       Float?
+  revenue_disp_2       Float?
+  special_notes        String?
+  is_checked           Boolean  @default(false)
+  created_at           DateTime @default(now())
+}
+
+model PlannedShift {
+  id        Int      @id @default(autoincrement())
+  car_id    Int
+  car       Car      @relation(fields: [car_id], references: [id], onDelete: Cascade)
+  driver_id Int
+  driver    Driver   @relation(fields: [driver_id], references: [id], onDelete: Cascade)
+  date      String
+  time_from String?
+  time_to   String?
+}
+
+model AppEvent {
+  id          Int      @id @default(autoincrement())
+  date        String
+  title       String
+  category    String
+  description String?
+}
+
+model FsmState {
+  id       Int    @id @default(autoincrement())
+  user_id  BigInt @unique
+  state    String
+  data     Json?
+}

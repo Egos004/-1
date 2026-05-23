@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: taxi_admin
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_DB: taxi_park
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taxi_admin -d taxi_park"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  node_app:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    environment:
+      - DATABASE_URL=postgresql://taxi_admin:secure_password@postgres:5432/taxi_park
+      - BOT_TOKEN=${BOT_TOKEN:-your_telegram_bot_token}
+       - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:-secret_admin_token_123}
+      - NODE_ENV=production
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  python_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    environment:
+      - DATABASE_URL=postgresql://taxi_admin:secure_password@postgres:5432/taxi_park
+      - BOT_TOKEN=${BOT_TOKEN:-your_telegram_bot_token}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

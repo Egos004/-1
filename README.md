@@ -1,20 +1,62 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Таксопарк - Система управления
 
-# Run and deploy your AI Studio app
+Полноценная система для управления таксопарком, включающая админ-панель (React/Node.js) и Telegram-бота для водителей (Python/aiogram) с базой данных PostgreSQL.
 
-This contains everything you need to run your app locally.
+## Развертывание в production (Docker Compose)
 
-View your app in AI Studio: https://ai.studio/apps/186ebc40-4db9-41c7-b1cd-460f88390e0a
+Проект полностью контейнеризован и готов к деплою на сервере через Docker.
 
-## Run Locally
+1. Убедитесь, что у вас установлен \`docker\` и \`docker-compose\`.
+2. Скопируйте файл \`.env.example\` в \`.env\` и заполните переменные:
+   \`\`\`bash
+   cp .env.example .env
+   \`\`\`
+3. Запустите сервисы:
+   \`\`\`bash
+   npm run docker:up
+   # или напрямую: docker-compose up --build -d
+   \`\`\`
+   Это поднимет три контейнера: базу данных PostgreSQL, Backend/Frontend (на порту 3000) и Python-бота.
 
-**Prerequisites:**  Node.js
+## Переменные окружения
 
+Ниже перечислены основные переменные, которые необходимо указать в файле \`.env\`:
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+*   **DATABASE_URL**: Строка подключения к PostgreSQL (например, \`postgresql://user:pass@postgres:5432/taxi_park\`).
+*   **BOT_TOKEN**: Токен вашего Telegram-бота (получить у @BotFather).
+*   **ADMIN_API_TOKEN**: Токен для защиты API (передается в заголовке \`X-Admin-Token\`, по умолчанию \`secret_admin_token_123\`).
+*   **DB_HOST, DB_USER, DB_PASSWORD, DB_NAME**: Параметры подключения для Python-бота (должны совпадать с DATABASE_URL).
+*   **ENCRYPTION_KEY**: \`опционально\` 32-байтовый ключ для шифрования паспортных данных (aes-256-cbc).
+
+## Запуск в режиме разработки
+
+Для локальной разработки вы можете запустить проект без Docker (убедитесь, что у вас есть доступная база PostgreSQL):
+
+1. Установите зависимости:
+   \`\`\`bash
+   npm install
+   \`\`\`
+2. Настройте \`.env\` (особенно \`DATABASE_URL\`).
+3. Примените миграции Prisma и сид:
+   \`\`\`bash
+   npm run db:migrate
+   npm run db:seed
+   \`\`\`
+4. Запустите Frontend/Backend сервер разработчика:
+   \`\`\`bash
+   npm run dev
+   \`\`\`
+5. Запустите бота локально:
+   \`\`\`bash
+   pip install -r requirements.txt
+   python bot/bot.py
+   \`\`\`
+
+## Как добавить нового водителя
+
+1. Водитель начинает диалог с ботом, нажимая **Запустить** (\`/start\`).
+2. Бот запрашивает у водителя ФИО, номер телефона и паспортные данные (включая ИНН, дату и место выдачи). Паспортные данные при сохранении в базу шифруются (aes-256-cbc).
+3. По завершении регистрации статус водителя устанавливается как \`is_approved = false\` (Ожидает модерации), и он не сможет сдавать отчеты.
+4. Вы, как администратор, должны зайти в веб-панель во вкладку **"Парк"**.
+5. Найти водителя в списке профилей и нажать кнопку **"Подтвердить"**.
+6. После этого статус изменится на **"Допущен"**, и водитель сможет выбирать автомобиль и сдавать отчеты об окончании смен.
